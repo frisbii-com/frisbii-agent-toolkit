@@ -128,16 +128,21 @@ Do not poll them to detect changes; use webhooks.
 ## 4. Mistakes we see most often
 
 See [references/common-mistakes.md](references/common-mistakes.md) for the full
-list with fixes. The top five:
+list with fixes, ranked by how often they reach support. The top five:
 
-1. Treating the `accept_url` redirect as proof of payment.
-2. Not verifying webhook signatures, or verifying them with a string comparison
-   that is not constant-time.
-3. Random or timestamp-based charge handles, so a retry double-charges or a
-   duplicate click creates two orders.
-4. Floats for money / wrong minor-unit conversion.
-5. Test-account keys, webhook secrets or plan handles hard-coded and shipped to
-   production.
+1. Deciding "paid" from a redirect, a webhook payload or `subscription_created`
+   instead of fetching the invoice; or treating a cancel redirect or one
+   `invoice_failed` as final.
+2. Embedding checkout where it cannot work: Apple Pay without domain setup,
+   in-app webviews, broken app-switch returns.
+3. Not enabling, or misreading, the webhook events the flow depends on.
+4. API key, auth scheme or environment mix-ups (Bearer instead of Basic, test
+   key against live, environments sharing one account).
+5. Session or charge parameters that do not fit the payment method
+   (`card_on_file` with wallets, recurring sessions on one-off methods).
+
+Always required even though tickets rarely show it: verify webhook signatures
+with a constant-time compare, and keep the private key server-side.
 
 ## 5. The Frisbii MCP server (optional)
 

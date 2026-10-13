@@ -18,6 +18,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from validate import ROOT, frontmatter  # noqa: E402
 
 PUBLIC_PLUGINS = ("plugins/frisbii",)
+IGNORE = shutil.ignore_patterns("__pycache__", "*.pyc", ".DS_Store")
 
 
 def main() -> None:
@@ -36,11 +37,12 @@ def main() -> None:
             src = os.path.join(skills_dir, skill)
             meta, _ = frontmatter(os.path.join(src, "SKILL.md"))
             files = []
-            for dirpath, _, filenames in os.walk(src):
-                for name in sorted(filenames):
+            for dirpath, dirnames, filenames in os.walk(src):
+                dirnames[:] = [d for d in dirnames if d not in IGNORE(dirpath, dirnames)]
+                for name in sorted(set(filenames) - IGNORE(dirpath, filenames)):
                     rel = os.path.relpath(os.path.join(dirpath, name), src).replace(os.sep, "/")
                     files.append(rel)
-            shutil.copytree(src, os.path.join(target, skill))
+            shutil.copytree(src, os.path.join(target, skill), ignore=IGNORE)
             index["skills"].append({"name": meta["name"], "description": meta["description"],
                                     "files": sorted(files)})
     with open(os.path.join(target, "index.json"), "w", encoding="utf-8") as f:
