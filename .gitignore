@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+dist/
+# Transform migration work directories contain customer data. Never commit them.
+frisbii-migration/

@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "frisbii": {
+      "type": "http",
+      "url": "https://mcp.frisbii.com/mcp"
+    }
+  }
+}
