@@ -6,7 +6,7 @@
     "name": "Frisbii"
   },
   "homepage": "https://docs.frisbii.com/",
-  "repository": "https://github.com/billwerk/frisbii-agent-toolkit",
+  "repository": "https://github.com/frisbii-com/frisbii-agent-toolkit",
   "license": "MIT",
   "keywords": ["frisbii", "reepay", "payments", "billing", "subscriptions", "checkout", "webhooks"]
 }
