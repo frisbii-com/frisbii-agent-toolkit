@@ -68,8 +68,6 @@ python3 tools/build_skills_index.py --out dist   # builds the .well-known/skills
 
 ## Not yet included
 
-- **Knowledge from support tickets.** `frisbii-best-practices/references/common-mistakes.md`
-  should be re-ranked using real integration tickets.
 - **Install from docs.frisbii.com.** `build_skills_index.py` builds the bundle
   for `npx skills add https://docs.frisbii.com`, but the docs site runs on
   ReadMe, which cannot serve files under `/.well-known/`. Hosting it needs a
