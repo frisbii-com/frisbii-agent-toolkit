@@ -35,12 +35,6 @@ npx skills add frisbii-com/frisbii-agent-toolkit --skill frisbii-best-practices 
 Other agents get the skills only; add the MCP server separately with that
 agent's own MCP configuration (`https://mcp.frisbii.com/mcp`, streamable HTTP).
 
-**From the docs site** (once published, see below)
-
-```bash
-npx skills add https://docs.frisbii.com
-```
-
 ## Design principles
 
 - **Opinionated, not encyclopaedic.** Skills route the agent to the right
@@ -61,7 +55,7 @@ plugins/frisbii/                       the plugin
   skills/<skill>/SKILL.md (+ references/, scripts/)
 tests/                                 webhook verifier tests
 tools/validate.py                      manifest + frontmatter checks
-tools/build_skills_index.py            builds .well-known/skills for docs.frisbii.com
+tools/build_skills_index.py            builds a .well-known/skills bundle (not hosted yet)
 ```
 
 ## Development
@@ -69,10 +63,15 @@ tools/build_skills_index.py            builds .well-known/skills for docs.frisbi
 ```bash
 python3 tools/validate.py
 python3 -m unittest discover -s tests -v
-python3 tools/build_skills_index.py --out dist   # then publish dist/.well-known to docs.frisbii.com
+python3 tools/build_skills_index.py --out dist   # builds the .well-known/skills bundle (CI checks it builds)
 ```
 
 ## Not yet included
 
 - **Knowledge from support tickets.** `frisbii-best-practices/references/common-mistakes.md`
   should be re-ranked using real integration tickets.
+- **Install from docs.frisbii.com.** `build_skills_index.py` builds the bundle
+  for `npx skills add https://docs.frisbii.com`, but the docs site runs on
+  ReadMe, which cannot serve files under `/.well-known/`. Hosting it needs a
+  Cloudflare route for `/.well-known/skills/*` to a static copy of `dist/`.
+  Until then, install from GitHub as above.
