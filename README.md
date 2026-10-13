@@ -17,9 +17,6 @@ The plugin also connects the **Frisbii MCP server** (`https://mcp.frisbii.com/mc
 OAuth sign-in on first use). The skills work without it; with it, the agent can
 inspect and set up data in the developer's (test) account while coding.
 
-The Transform → Billing migration skills live in a separate repository that
-Customer Success distributes to Transform customers.
-
 ## Install
 
 **Claude Code**
