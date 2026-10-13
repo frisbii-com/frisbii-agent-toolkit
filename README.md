@@ -25,14 +25,14 @@ Customer Success distributes to Transform customers.
 **Claude Code**
 
 ```text
-/plugin marketplace add billwerk/frisbii-agent-toolkit
+/plugin marketplace add frisbii-com/frisbii-agent-toolkit
 /plugin install frisbii@frisbii-agent-toolkit
 ```
 
 **Cursor, Codex and other agents** (via the `skills` CLI)
 
 ```bash
-npx skills add billwerk/frisbii-agent-toolkit --skill frisbii-best-practices   # or omit --skill to choose
+npx skills add frisbii-com/frisbii-agent-toolkit --skill frisbii-best-practices   # or omit --skill to choose
 ```
 
 Other agents get the skills only; add the MCP server separately with that
