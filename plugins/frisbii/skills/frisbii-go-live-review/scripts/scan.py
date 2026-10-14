@@ -39,8 +39,34 @@ LINE_RULES = [
     ("accept-url-trust", "warning",
      "accept_url handler may mark orders paid from query parameters; confirm server-side",
      re.compile(r"(accept|success)\w*.*(mark\w*paid|status\s*=\s*['\"]paid|set_paid|fulfil)", re.I), False),
+    ("activate-on-subscription-created", "warning",
+     "Access may be granted on subscription_created; grant it on a settled invoice or active state",
+     re.compile(r"subscription_created.{0,80}(activat|grant|provision|unlock|paid)"
+                r"|(activat|grant|provision|unlock)\w*.{0,80}subscription_created", re.I), False),
+    ("bearer-auth", "warning",
+     "Frisbii uses HTTP Basic auth (private key as username, empty password), not Bearer",
+     re.compile(r"Bearer\b.{0,60}(priv_|reepay|frisbii)|(priv_|reepay|frisbii)\w*.{0,60}\bBearer\b", re.I), True),
+    ("email-as-handle", "warning",
+     "Email address used as a handle; handles end up in URLs, use your own customer ID",
+     re.compile(r"handle\W{0,6}[:=]\s*[^,\n]*\bemail", re.I), False),
+    ("empty-alternative-return-url", "warning",
+     "alternative_return_url set to an empty string; use the app's URL scheme or omit it",
+     re.compile(r"alternative_return_url\W{0,6}[:=]\s*(''|\"\")", re.I), False),
+    ("internal-card-endpoint", "warning",
+     "References Checkout's internal card host; confirm no card numbers are sent from your code",
+     re.compile(r"card\.reepay\.com", re.I), False),
 ]
 
+# Applied only to files that handle webhook events.
+WEBHOOK_LINE_RULES = [
+    ("strict-webhook-schema", "warning",
+     "Webhook payload validated strictly; new fields Frisbii adds would be rejected, ignore unknown fields",
+     re.compile(r"additionalProperties['\"]?\s*:\s*false|\.strict\(\)|FAIL_ON_UNKNOWN_PROPERTIES\W+true"
+                r"|extra\s*=\s*['\"]forbid|DisallowUnknownFields|MissingMemberHandling\.Error", re.I), False),
+]
+
+CHARGE_SESSION_MARKERS = re.compile(r"session/charge|ChargeSession|charge_session", re.I)
+SETTLE_MARKERS = re.compile(r"\bsettle\b", re.I)
 FRISBII_MARKERS = re.compile(r"api\.reepay\.com|checkout-api\.reepay\.com|checkout\.reepay\.com|frisbii", re.I)
 WEBHOOK_MARKERS = re.compile(r"event_type|invoice_settled|subscription_(created|expired|renewal)")
 SIGNATURE_MARKERS = re.compile(r"hmac|HmacSHA256|hash_hmac|createHmac|HMACSHA256|verify_frisbii_webhook|verifyFrisbiiWebhook", re.I)
@@ -80,8 +106,10 @@ def scan(root: str) -> dict:
         uses_frisbii = bool(FRISBII_MARKERS.search(text))
         if uses_frisbii:
             frisbii_files.append(rel)
+        handles_webhooks = bool(WEBHOOK_MARKERS.search(text)) and not is_test_path(rel)
+        rules = LINE_RULES + (WEBHOOK_LINE_RULES if handles_webhooks else [])
         for lineno, line in enumerate(text.splitlines(), 1):
-            for rule_id, severity, desc, rx, redact in LINE_RULES:
+            for rule_id, severity, desc, rx, redact in rules:
                 if rule_id == "test-card-number" and is_test_path(rel):
                     continue
                 if rx.search(line):
@@ -90,12 +118,18 @@ def scan(root: str) -> dict:
                         "description": desc,
                         "snippet": None if redact else line.strip()[:160],
                     })
-        if WEBHOOK_MARKERS.search(text) and not SIGNATURE_MARKERS.search(text) and not is_test_path(rel):
+        if handles_webhooks and not SIGNATURE_MARKERS.search(text):
             webhook_files_without_sig.append(rel)
         if uses_frisbii and not TIMEOUT_MARKERS.search(text) and re.search(r"(reepay|frisbii)\.com", text):
             findings.append({
                 "rule": "no-timeout", "severity": "warning", "file": rel, "line": None,
                 "description": "File calls Frisbii API but no timeout is visible; set explicit HTTP timeouts",
+                "snippet": None,
+            })
+        if CHARGE_SESSION_MARKERS.search(text) and not SETTLE_MARKERS.search(text) and not is_test_path(rel):
+            findings.append({
+                "rule": "charge-session-without-settle", "severity": "warning", "file": rel, "line": None,
+                "description": "Creates charge sessions but never sets settle; set it explicitly (false for physical goods)",
                 "snippet": None,
             })
     for rel in webhook_files_without_sig:
