@@ -13,9 +13,10 @@ others) build correct integrations with **Frisbii Billing** and **Frisbii Pay**
 | `frisbii-migrate-from-stripe` | Object/event mapping, card export, SEPA/PayPal imports, parallel run |
 | `frisbii-go-live-review` | Pre-production checklist and code scanner |
 
-The plugin also connects the **Frisbii MCP server** (`https://mcp.frisbii.com/mcp`,
-OAuth sign-in on first use). The skills work without it; with it, the agent can
-inspect and set up data in the developer's (test) account while coding.
+The plugin also connects the **Frisbii MCP server** (`https://mcp.frisbii.com/mcp`;
+sign in with a Frisbii API key on first use). The skills work without it; with
+it, the agent can inspect and set up data in the developer's (test) account
+while coding.
 
 ## Install
 
@@ -55,7 +56,7 @@ plugins/frisbii/                       the plugin
   skills/<skill>/SKILL.md (+ references/, scripts/)
 tests/                                 webhook verifier tests
 tools/validate.py                      manifest + frontmatter checks
-tools/build_skills_index.py            builds a .well-known/skills bundle (not hosted yet)
+tools/build_skills_index.py            builds a .well-known/skills bundle
 ```
 
 ## Development
@@ -63,13 +64,5 @@ tools/build_skills_index.py            builds a .well-known/skills bundle (not h
 ```bash
 python3 tools/validate.py
 python3 -m unittest discover -s tests -v
-python3 tools/build_skills_index.py --out dist   # builds the .well-known/skills bundle (CI checks it builds)
+python3 tools/build_skills_index.py --out dist   # CI checks the bundle builds
 ```
-
-## Not yet included
-
-- **Install from docs.frisbii.com.** `build_skills_index.py` builds the bundle
-  for `npx skills add https://docs.frisbii.com`, but the docs site runs on
-  ReadMe, which cannot serve files under `/.well-known/`. Hosting it needs a
-  Cloudflare route for `/.well-known/skills/*` to a static copy of `dist/`.
-  Until then, install from GitHub as above.

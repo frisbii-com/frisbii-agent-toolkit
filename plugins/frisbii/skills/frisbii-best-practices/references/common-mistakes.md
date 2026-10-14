@@ -1,10 +1,8 @@
 # Common Frisbii integration mistakes
 
-Ranked by how often they reach Frisbii support (Intercom conversations, Pay and
-Subscriptions escalations and support cases, April 2025 to October 2026).
-"Seen" is a rough band, not a statistic: **often** = 15+ tickets, **regularly**
-= 8–14, **sometimes** = 4–7. Items marked `VERIFY` come from support answers
-and are not yet confirmed against docs.frisbii.com.
+Ranked by how often they come up in Frisbii support: **often**, **regularly**
+or **sometimes**. Items marked `VERIFY` are still being confirmed against
+docs.frisbii.com.
 
 ## 1. Deciding "paid" from the wrong signal (often)
 
