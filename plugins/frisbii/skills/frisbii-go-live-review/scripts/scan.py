@@ -71,6 +71,28 @@ FRISBII_MARKERS = re.compile(r"api\.reepay\.com|checkout-api\.reepay\.com|checko
 WEBHOOK_MARKERS = re.compile(r"event_type|invoice_settled|subscription_(created|expired|renewal)")
 SIGNATURE_MARKERS = re.compile(r"hmac|HmacSHA256|hash_hmac|createHmac|HMACSHA256|verify_frisbii_webhook|verifyFrisbiiWebhook", re.I)
 TIMEOUT_MARKERS = re.compile(r"timeout", re.I)
+# Hosts that take API calls. checkout.frisbii.com (the JS) and app.frisbii.com (admin) do not.
+API_HOSTS = re.compile(r"\b(api|checkout-api|customer-portal-api)\.(reepay|frisbii)\.com", re.I)
+
+SLASH_COMMENT_EXT = {".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx", ".php", ".java", ".kt", ".cs", ".go",
+                     ".vue", ".svelte"}
+HASH_COMMENT_EXT = {".py", ".rb", ".yml", ".yaml", ".toml", ".ini", ".properties", ".php"}
+BLOCK_COMMENT = re.compile(r"/\*.*?\*/", re.S)
+LINE_COMMENT = re.compile(r"(?<![:\w\"'`])//[^\n]*")
+HASH_COMMENT = re.compile(r"(?m)(^|\s)#[^\n]*")
+HTML_COMMENT = re.compile(r"<!--.*?-->", re.S)
+
+
+def strip_comments(text: str, name: str) -> str:
+    """Drop comments so file-level checks look at code, not prose about it."""
+    ext = os.path.splitext(name)[1].lower()
+    if ext in SLASH_COMMENT_EXT:
+        text = LINE_COMMENT.sub("", BLOCK_COMMENT.sub("", text))
+    if ext in HASH_COMMENT_EXT or name.startswith(".env"):
+        text = HASH_COMMENT.sub(r"\1", text)
+    if ext in {".html", ".vue", ".svelte", ".php"}:
+        text = HTML_COMMENT.sub("", text)
+    return text
 
 
 def is_test_path(path: str) -> bool:
@@ -106,7 +128,8 @@ def scan(root: str) -> dict:
         uses_frisbii = bool(FRISBII_MARKERS.search(text))
         if uses_frisbii:
             frisbii_files.append(rel)
-        handles_webhooks = bool(WEBHOOK_MARKERS.search(text)) and not is_test_path(rel)
+        code = strip_comments(text, os.path.basename(path))
+        handles_webhooks = bool(WEBHOOK_MARKERS.search(code)) and not is_test_path(rel)
         rules = LINE_RULES + (WEBHOOK_LINE_RULES if handles_webhooks else [])
         for lineno, line in enumerate(text.splitlines(), 1):
             for rule_id, severity, desc, rx, redact in rules:
@@ -118,15 +141,15 @@ def scan(root: str) -> dict:
                         "description": desc,
                         "snippet": None if redact else line.strip()[:160],
                     })
-        if handles_webhooks and not SIGNATURE_MARKERS.search(text):
+        if handles_webhooks and not SIGNATURE_MARKERS.search(code):
             webhook_files_without_sig.append(rel)
-        if uses_frisbii and not TIMEOUT_MARKERS.search(text) and re.search(r"(reepay|frisbii)\.com", text):
+        if API_HOSTS.search(code) and not TIMEOUT_MARKERS.search(code):
             findings.append({
                 "rule": "no-timeout", "severity": "warning", "file": rel, "line": None,
                 "description": "File calls Frisbii API but no timeout is visible; set explicit HTTP timeouts",
                 "snippet": None,
             })
-        if CHARGE_SESSION_MARKERS.search(text) and not SETTLE_MARKERS.search(text) and not is_test_path(rel):
+        if CHARGE_SESSION_MARKERS.search(code) and not SETTLE_MARKERS.search(code) and not is_test_path(rel):
             findings.append({
                 "rule": "charge-session-without-settle", "severity": "warning", "file": rel, "line": None,
                 "description": "Creates charge sessions but never sets settle; set it explicitly (false for physical goods)",

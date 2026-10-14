@@ -75,6 +75,24 @@ class ScanTest(unittest.TestCase):
         found = rules_for({"app/forms.ts": "const Signup = z.object({ name: z.string() }).strict();\n"})
         self.assertNotIn("strict-webhook-schema", found)
 
+    def test_comments_and_non_api_hosts_are_not_code(self):
+        found = rules_for({
+            "src/sync.js": "// Access never starts on subscription_created.\nconst x = 1;\n",
+            "src/views.js": '<script src="https://checkout.frisbii.com/checkout.js"></script>\n',
+            ".env.example": "# Find the key at https://app.frisbii.com\nFRISBII_KEY=\n",
+            "app/hooks.py": "# event_type is checked upstream\ndef ok():\n    pass\n",
+        })
+        self.assertNotIn("webhook-without-signature-check", found)
+        self.assertNotIn("no-timeout", found)
+
+    def test_real_code_is_still_flagged(self):
+        found = rules_for({
+            "app/client.js": "fetch('https://api.frisbii.com/v1/charge/order-1'); // no timeout set\n",
+            "app/hooks.py": "def handle(e):\n    if e['event_type'] == 'invoice_settled':  # hmac checked?\n        ship()\n",
+        })
+        self.assertIn("no-timeout", found)
+        self.assertIn("webhook-without-signature-check", found)
+
     def test_bearer_finding_hides_snippet(self):
         scan = load_scan()
         with tempfile.TemporaryDirectory() as root:
