@@ -1,0 +1,26 @@
+{
+  "name": "frisbii-agent-toolkit",
+  "owner": {
+    "name": "Frisbii"
+  },
+  "metadata": {
+    "description": "Agent skills and tools for integrating with Frisbii Billing and Frisbii Pay.",
+    "version": "0.1.0"
+  },
+  "plugins": [
+    {
+      "name": "frisbii",
+      "source": "./plugins/frisbii",
+      "description": "Best practices, checkout, subscriptions, webhooks, Stripe migration and go-live review for Frisbii Billing and Frisbii Pay.",
+      "category": "development",
+      "keywords": [
+        "frisbii",
+        "reepay",
+        "payments",
+        "billing",
+        "subscriptions",
+        "checkout"
+      ]
+    }
+  ]
+}

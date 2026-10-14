@@ -1,0 +1,23 @@
+name: validate
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Validate manifests and skills
+        run: python3 tools/validate.py
+      - name: Tests
+        run: python3 -m unittest discover -s tests -v
+      - name: Build public skills index
+        run: python3 tools/build_skills_index.py --out dist
