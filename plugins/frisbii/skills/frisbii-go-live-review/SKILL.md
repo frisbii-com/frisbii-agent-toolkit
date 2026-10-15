@@ -48,6 +48,7 @@ symptom and fix.
 ### Checkout
 - [ ] Every session sets `settle` explicitly, restricts `payment_methods` per market and sends the customer's real `locale`. [5]
 - [ ] `card_on_file` is used only with saved cards; other saved methods are charged with `POST /v1/charge` and `source`. Recurring sessions only offer methods that support recurring. [5]
+- [ ] The embedded checkout container has a definite height (not only `min-height`), so the iframe is not cut off at 150px. [2]
 - [ ] Apple Pay in embedded/modal checkout: the merchant domain is passed (`domainName`) and Apple's domain-association file is hosted on it. `VERIFY` [2]
 - [ ] The modal checkout reacts to checkout events rather than relying on `accept_url`/`cancel_url` redirects. `VERIFY` [2]
 - [ ] Native apps open checkout in the system browser (`SFSafariViewController`, Chrome Custom Tabs), not a webview, and set `alternative_return_url` to the app's URL scheme (never an empty string). `VERIFY` [2]
@@ -67,13 +68,14 @@ symptom and fix.
 - [ ] Change-subscription calls send the complete pending change, so a second call does not silently replace the first. `VERIFY` [6]
 - [ ] No subscription `amount` overrides unless the price is meant to be pinned; recurring quantities (seats) are add-on quantities, not one-off charges. [6]
 - [ ] Renewals are billed by Billing subscriptions, not a custom job charging saved sources. [12]
+- [ ] Plans and add-ons are created with an explicit, matching `currency` (an add-on without one takes the account default and signups fail with "Currency mismatch"). [6]
 - [ ] Failed payments, dunning, on-hold and expiry are handled; customers can update their payment method.
 - [ ] Plan handles exist on the live account with the same configuration as test.
 - [ ] Upgrade/downgrade timing and proration are deliberate.
 - [ ] Cancellation (period end vs immediate) matches terms and conditions.
 
 ### Errors and operations
-- [ ] Non-2xx responses are logged with `request-id`, `code` and `transaction_error`; 5xx/network errors retried with back-off (same `handle` + `key` for charges); 429 (codes 122/123) backs off; other 4xx not retried blindly.
+- [ ] Non-2xx responses are logged with `request-id` (Checkout API: `request_id`, or the `request-id` header), `code` and `transaction_error`; 5xx/network errors retried with back-off (same `handle` + `key` for charges); 429 (codes 122/123) backs off; other 4xx not retried blindly.
 - [ ] Timeouts set on all HTTP calls to Frisbii.
 - [ ] Monitoring/alerts on payment failure rate and webhook failures.
 - [ ] Test data, test card numbers and debug endpoints removed from production paths.

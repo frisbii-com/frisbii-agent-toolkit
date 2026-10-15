@@ -34,7 +34,7 @@ without the setup it needs.
 iframe", payment not completed); checkout jumps straight to the cancel URL;
 the session hangs after 3-D Secure or MitID; app switch to MobilePay, Vipps or
 iDEAL never returns; a blank page inside Facebook/Instagram or other in-app
-webviews.
+webviews; the embedded card form cut off after a few lines.
 
 **Fix.**
 - Apple Pay in embedded/modal checkout: pass the merchant `domainName` to
@@ -48,6 +48,8 @@ webviews.
   URL scheme; never send it as an empty string. `VERIFY`
 - Do not offer a payment method list that the device cannot show (for example
   Apple Pay only, to Android users).
+- Give the embedded checkout's container a definite `height`: the iframe is sized
+  `height: 100%`, so with only `min-height` it collapses to 150px.
 
 ## 3. Not subscribing to, or misreading, the right webhook events (often)
 
@@ -115,12 +117,15 @@ send the customer's real `locale`.
   billing cycle differs; compensation refunds failing for methods that do not
   allow partial refunds.
 - Extra seats sold as one-off charges, so they never recur at renewal.
+- Signups with an add-on failing with `400` code 154 "Currency mismatch": the
+  add-on was created without `currency`, so it took the account default rather
+  than the plans' currency.
 
 **Fix.** Send the complete pending change in each change call. Do not set a
 subscription `amount` unless you mean to pin the price (custom pricing needs
 `pricing_strategy: custom` `VERIFY`). Change prices with a new plan or plan
 version and supersede deliberately. Model recurring quantities as add-on
-quantity, not one-off charges.
+quantity, not one-off charges, and create add-ons with the plans' `currency`.
 
 ## 7. Handle collisions (regularly)
 

@@ -87,7 +87,17 @@ Response contains the session `id` (`cs_…`) and a hosted `url`.
 ```
 
 The JS namespace is still `Reepay` after the rebrand. Options include
-`showReceipt: false`. Mobile apps: see "Checkout Native/Hybrid App
+`showReceipt: false`.
+
+**Give the embedded container a definite height.** The embedded checkout sizes its
+iframe at `height: 100%` of `html_element`. A container with only `min-height` (or no
+height) collapses the iframe to the browser default of 150px and hides the card form.
+Set e.g. `#rp_container { height: 780px; }` (the card form is about 700px tall).
+
+Subscription sessions can show a "subscription terms and conditions" checkbox (shown
+when the account has terms configured, or set with `show_terms`) and keep the button
+disabled until it is ticked. Expect it in test scripts; set `show_terms: false` only
+when your own signup already collects acceptance. Mobile apps: see "Checkout Native/Hybrid App
 Integration" in the docs.
 
 | Mode | Use when |
