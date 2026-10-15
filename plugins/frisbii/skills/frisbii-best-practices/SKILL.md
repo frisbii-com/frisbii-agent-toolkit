@@ -92,7 +92,8 @@ beyond SAQ A. Do not build your own card form posting PANs to your server.
 `error`, optional `message`, `http_status`, `path`, `timestamp`, `request-id`
 (hyphenated) and, for payment failures, `transaction_error` (e.g.
 `insufficient_funds`, `credit_card_expired`). Log `request-id`: Frisbii support
-needs it. Branch on `http_status`, `code` and `transaction_error`, never on the
+needs it. The Checkout API names the same field `request_id` (underscore); both APIs
+also send a `request-id` response header, so read the header when the body has neither. Branch on `http_status`, `code` and `transaction_error`, never on the
 message text. Error codes: <https://api.frisbii.com/v1/error_codes>.
 - 4xx: a bug or a business outcome. Do not retry blindly.
 - 429: rate limit (`code` 122) or concurrent-request limit (`code` 123). Back

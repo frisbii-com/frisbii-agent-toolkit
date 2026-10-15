@@ -93,7 +93,7 @@ confirming.
 
 | Need | Use |
 |---|---|
-| Seats / licences | Quantity add-on (`type: quantity`) |
+| Seats / licences | Quantity add-on (`type: quantity`), created with the same `currency` as the plans |
 | Metered usage (API calls, kWh, GB) | **Usage-based billing product** (`POST /v1/metered_billing_product`), attach to subscription, report usage records (`…/metered_usage_record`) |
 | One-time extra on next invoice | `POST /v1/additional_cost` `{ handle, subscription, amount, ordertext, quantity }` |
 | Collect now | `POST /v1/charge` with the subscription's payment method, or "Create invoice on demand for subscription" |
@@ -151,3 +151,8 @@ Build custom UI on the API only for actions the portal does not cover.
 4. Forgetting `remove_add_ons` when downgrading.
 5. Not handling `subscription_expired` / `_dunning` (customer keeps access).
 6. Relying on the `amount_incl_vat` default (true) by accident.
+7. Creating add-ons without `currency`. They take the **account** default, so on an
+   account whose default differs from the plans (e.g. GBP account, DKK plans) every
+   signup with the add-on fails with `400` code 154 "Currency mismatch". Send
+   `currency` on `POST /v1/add_on`. If an existing add-on has the wrong currency,
+   creating a new add-on under a new handle is the safe way out.
