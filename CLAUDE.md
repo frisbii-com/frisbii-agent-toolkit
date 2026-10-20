@@ -1,4 +1,4 @@
-# CLAUDE.md — frisbii-agent-toolkit
+# CLAUDE.md — frisbii-developer-toolkit
 
 Guidance for Claude Code working in this repository. See [README.md](README.md)
 for what the toolkit is, how it is installed and the repository layout.
@@ -35,7 +35,7 @@ same piece of work:
 | Page | ID |
 |---|---|
 | Skill page template | 11604262921 |
-| Frisbii Agent Toolkit (parent) | 11604099086 |
+| Frisbii Developer Toolkit (parent) | 11604099086 |
 | frisbii-best-practices | 11603705858 |
 | frisbii-checkout | 11604328460 |
 | frisbii-subscriptions | 11604557825 |

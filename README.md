@@ -1,4 +1,4 @@
-# Frisbii agent toolkit
+# Frisbii developer toolkit
 
 Skills and tools that help coding agents (Claude Code, Cursor, Codex and
 others) build correct integrations with **Frisbii Billing** and **Frisbii Pay**
@@ -23,14 +23,14 @@ while coding.
 **Claude Code**
 
 ```text
-/plugin marketplace add frisbii-com/frisbii-agent-toolkit
-/plugin install frisbii@frisbii-agent-toolkit
+/plugin marketplace add frisbii-com/frisbii-developer-toolkit
+/plugin install frisbii@frisbii-developer-toolkit
 ```
 
 **Cursor, Codex and other agents** (via the `skills` CLI)
 
 ```bash
-npx skills add frisbii-com/frisbii-agent-toolkit --skill frisbii-best-practices   # or omit --skill to choose
+npx skills add frisbii-com/frisbii-developer-toolkit --skill frisbii-best-practices   # or omit --skill to choose
 ```
 
 Other agents get the skills only; add the MCP server separately with that
