@@ -8,9 +8,10 @@ docs.frisbii.com.
 
 **Mistake.** Fulfilling or activating on something that is not the invoice's
 server-side state: the `accept_url` redirect, a webhook payload on its own,
-`subscription_created`, an open browser tab, or a single failed transaction.
-The mirror image is just as common: treating the `cancel_url`, a closed window
-or one `invoice_failed` as a final failure.
+`subscription_created`, an open browser tab, a single failed transaction, or the
+HTTP status of a charge call (a declined charge answers HTTP 200 with
+`state: failed`). The mirror image is just as common: treating the `cancel_url`,
+a closed window or one `invoice_failed` as a final failure.
 
 **Symptoms.** Goods or add-ons provisioned without payment; duplicate orders
 because a static cancel page made the shopper buy again while the first
@@ -20,7 +21,9 @@ during signup.
 
 **Fix.** Treat redirects and webhooks as *triggers*. On each one, fetch the
 invoice/charge (`GET /v1/charge/{handle}` or `GET /v1/invoice/{id}`) and act on
-its state: fulfil on `authorized`/`settled` as your flow requires. `failed` is
+its state: fulfil on `authorized`/`settled` as your flow requires. After a
+`POST /v1/charge` or settle, read `state` and `error_state` in the response body.
+`failed` is
 not final while the customer can still retry or dunning is running; only
 `cancelled` is. Make the cancel page check the order state before offering a
 retry. Make every handler idempotent.
@@ -37,15 +40,21 @@ iDEAL never returns; a blank page inside Facebook/Instagram or other in-app
 webviews; the embedded card form cut off after a few lines.
 
 **Fix.**
-- Apple Pay in embedded/modal checkout: pass the merchant `domainName` to
-  `EmbeddedCheckout`/`ModalCheckout` and host Apple's domain-association file
-  on that domain. `VERIFY`
-- With the modal checkout, listen for the checkout events instead of relying on
-  `accept_url`/`cancel_url` redirects. `VERIFY`
-- In native apps, open checkout in the system browser
-  (`SFSafariViewController`, Chrome Custom Tabs), not a webview, so bank and
-  wallet app switches can return. Set `alternative_return_url` to your app's
-  URL scheme; never send it as an empty string. `VERIFY`
+- Apple Pay in embedded/modal checkout: register and verify the domain on the
+  Apple Pay agreement in the Frisbii admin, host Apple's domain-verification
+  file at `https://<domain>/.well-known/apple-developer-merchantid-domain-association`,
+  and pass the domain as `domainName` in the `EmbeddedCheckout`/`ModalCheckout`
+  options.
+- With the embedded and modal checkout, react to the checkout events (Accept,
+  Error, Cancel, Close) instead of relying on redirects, but still set
+  `accept_url` and `cancel_url`: on mobile, app-switch methods such as
+  MobilePay return through them.
+- In native apps, follow the docs' "Checkout Native App Integration": load
+  checkout in a WebView (WKWebView / Android WebView), receive the checkout
+  events through the Native Bridge, and set `session_data.alternative_return_url`
+  to your app's URL scheme so wallet and bank apps can return to the app. Never
+  send it as an empty string. For hybrid apps (React Native, Flutter, Ionic)
+  see "Checkout Hybrid App Integration".
 - Do not offer a payment method list that the device cannot show (for example
   Apple Pay only, to Android users).
 - Give the embedded checkout's container a definite `height`: the iframe is sized
@@ -62,7 +71,9 @@ never noticed; waiting for `customer_payment_method_deleted` when the
 customer revoked the agreement in their wallet app (that is
 `customer_payment_method_failed`).
 
-**Fix.** Enable every event your flow needs (see `frisbii-webhooks`). Failed
+**Fix.** On a new account webhooks are disabled, and only `invoice_authorized`
+and `customer_payment_method_added` are selected. Enable webhooks and select
+every event your flow needs (see `frisbii-webhooks`). Failed
 renewal: `invoice_dunning` (entered dunning), then `invoice_settled`
 (recovered) or `invoice_dunning_cancelled`/`subscription_on_hold`. A payment
 method that can no longer be used: `customer_payment_method_failed`. Keep a
@@ -89,18 +100,25 @@ paste a live key into email or tickets; rotate it if that happens.
 
 **Mistake.** Sending parameters that only apply to some methods or flows.
 
-**Symptoms.** `card_on_file` with a wallet (Apple Pay) or EMV-token source
-fails ("card not found", error 604); bad requests on `vipps_recurring`;
-recurring sessions attempted with a one-off method such as `vipps_epayment`;
-"why is it not settled?" on a charge session created without `settle`;
-unwanted methods shown because `payment_methods` was not restricted; wrong
-checkout language from `locale: en_US` for German customers.
+**Symptoms.** `card_on_file` used with a wallet (Apple Pay) method or without
+the customer on the session (error 19, "Card not found"), or with a
+network-token (EMV token) card in a session that also saves a payment method
+(error 604); bad requests on `vipps_recurring`; recurring sessions attempted
+with a one-off method such as `vipps_epayment`; "why is it not settled?" on a
+charge session created without `settle`; unwanted methods shown because
+`payment_methods` was not restricted, or expected methods missing because an
+id was misspelled or not enabled on the account (such ids are dropped
+silently); wrong checkout language from `locale: en_US` for German customers.
 
-**Fix.** Use `card_on_file` only for saved cards; for merchant-initiated
-charges on other saved methods, `POST /v1/charge` with `source: "ca_…"`.
-Check each method supports recurring before offering it in a recurring
-session. Set `settle` explicitly. Restrict `payment_methods` per market and
-send the customer's real `locale`.
+**Fix.** Use `card_on_file` only with an active saved card (`ca_…`) of the
+session's customer. When the customer is present and pays with a saved card,
+that is a customer-initiated payment: use a charge session with `card_on_file`
+so SCA can run. For merchant-initiated charges (customer not present), use
+`POST /v1/charge` with `source` set to the saved method's id (`ca_…` card,
+`ar_…` Apple Pay, `gr_…` Google Pay, …). Check each method supports recurring
+before offering it in a recurring session. Set `settle` explicitly. Restrict
+`payment_methods` per market, check the session shows the methods you expect,
+and send the customer's real `locale`.
 
 ## 6. Subscription changes that do something other than expected (regularly)
 
@@ -108,11 +126,16 @@ send the customer's real `locale`.
 
 **Symptoms.**
 - A second change-subscription call (for example add-ons only) replaced an
-  earlier pending change, leaving subscriptions on the wrong plan. `VERIFY`
+  earlier pending change, leaving subscriptions on the wrong plan. An
+  immediate change likewise replaces a pending renewal change.
 - A script removing and re-adding add-ons cancelled pending supersede
-  changes, so subscriptions kept the old price.
+  changes, so subscriptions kept the old price. Any change call takes the
+  subscription out of a scheduled plan update.
 - Hard-coded `amount` overrides on subscriptions meant later plan price or VAT
-  changes never applied.
+  changes never applied; the reverse also happens: a change call without
+  `amount` removed a custom price that was meant to stay.
+- Contract terms (notice periods, fixation and contract dates) lost after a
+  change call that did not repeat them.
 - `billing` options on a plan change still producing an invoice when the
   billing cycle differs; compensation refunds failing for methods that do not
   allow partial refunds.
@@ -121,11 +144,14 @@ send the customer's real `locale`.
   add-on was created without `currency`, so it took the account default rather
   than the plans' currency.
 
-**Fix.** Send the complete pending change in each change call. Do not set a
-subscription `amount` unless you mean to pin the price (custom pricing needs
-`pricing_strategy: custom` `VERIFY`). Change prices with a new plan or plan
-version and supersede deliberately. Model recurring quantities as add-on
-quantity, not one-off charges, and create add-ons with the plans' `currency`.
+**Fix.** Treat every change call as a full replacement: send the complete
+desired change, including `amount` when the price is pinned and the contract
+fields you want to keep. After an immediate change, send any renewal change
+again. Do not set a subscription `amount` unless you mean to pin the price; the
+`amount` (with `amount_incl_vat`) on the subscription is the custom price, no
+other flag is needed. Change prices with a new plan or plan version and
+supersede deliberately. Model recurring quantities as add-on quantity, not
+one-off charges, and create add-ons with the plans' `currency`.
 
 ## 7. Handle collisions (regularly)
 
@@ -135,9 +161,10 @@ different data.
 **Symptoms.** "Customer cannot be changed on invoice" (error 99) because shop
 order numbers restarted or were reused across environments; "duplicate
 customer" when `generate_handle: true` is mixed with self-chosen handles in
-the same pattern; "amount change not allowed on invoice" (error 100) when a
-retry re-sent an existing handle with a different amount or order lines;
-parallel calls racing to create the same customer. `VERIFY` (error numbers)
+the same pattern; a retry that re-sent an existing handle with different order
+lines silently replaced the lines of the unpaid charge, or failed with
+"invoice already authorized" (error 105) / "already settled" (error 79) once it
+was paid; parallel calls racing to create the same customer.
 
 **Fix.** Handle = your own order or customer ID, unique across environments
 and resets (prefix with the environment or shop). Either always generate
@@ -170,9 +197,10 @@ consumer rejected new JSON fields; endpoints returning 400/404; "read timed
 out" alert emails; webhook URLs longer than 255 characters.
 
 **Fix.** Ignore unknown fields (the API is extended without notice). Return
-2xx within 10 seconds and do the work asynchronously. Expect retries and make
-processing idempotent. Keep webhook URLs within 255 characters. `VERIFY`
-(URL limit)
+2xx within 10 seconds and do the work asynchronously. Answer directly: a
+redirect (for example http → https, or a missing trailing slash) counts as a
+failed delivery. Expect retries and make processing idempotent. Keep webhook
+URLs within 255 characters.
 
 ## 10. Back-office code acting without checking state (sometimes)
 

@@ -21,11 +21,11 @@ Full table: [references/object-mapping.md](references/object-mapping.md).
 | Stripe | Frisbii | Key differences |
 |---|---|---|
 | Customer `cus_…` | Customer (your `handle`) | Choose handles from your own IDs; store Stripe ID in metadata during transition |
-| PaymentMethod `pm_…` / Card | Payment method `ca_…` | Created via Checkout or card import, never via raw PAN |
+| PaymentMethod `pm_…` / Card | Payment method `ca_…` (`ar_…` Apple Pay, `gr_…` Google Pay) | Created via Checkout or card import, never via raw PAN |
 | PaymentIntent | Charge (an invoice) | `handle` = your order ID; `settle: false/true` ≈ `capture_method` |
 | SetupIntent | Recurring checkout session | Saves a method, no amount |
 | Checkout Session (payment) | Charge session | `order.handle`, `accept_url`/`cancel_url` |
-| Checkout Session (subscription) | Recurring session + `POST /v1/subscription` | Two steps on Frisbii |
+| Checkout Session (subscription) | Subscription session with `prepare_subscription`, or recurring session + `POST /v1/subscription` | One step, or two steps when the server controls creation |
 | Product + recurring Price | Plan | One plan per price (amount + interval + currency) |
 | Product + one-time Price | Order line on a charge | No catalogue object needed |
 | Subscription | Subscription | `start_date`, `plan`, `source` |
@@ -36,7 +36,7 @@ Full table: [references/object-mapping.md](references/object-mapping.md).
 | Invoice | Invoice | Do not migrate history; keep Stripe export as archive |
 | Refund | Refund | `POST /v1/refund` with invoice handle |
 | Idempotency-Key header | Deterministic `handle` (+ `key` on charges) | |
-| Test mode keys | Separate test **account** | `GET /v1/account` → `state`; `test` flag on subscription create |
+| Test mode keys | Separate test **account** | `GET /v1/account` → `state`; `test` flag on customer and subscription create |
 
 Amounts are minor-unit integers on both platforms, so no conversion is needed.
 
@@ -51,18 +51,28 @@ working until cut-over:
    a Frisbii charge or recurring session (`frisbii-checkout`).
 3. **Subscriptions:** replace `stripe.subscriptions.create/update/cancel`
    (`frisbii-subscriptions`). Map `proration_behavior`:
-   `create_prorations` → `timing: immediate` + prorated billing;
-   `none` → `timing: renewal`.
-   Map `cancel_at_period_end: true` → `POST /cancel`; immediate cancel →
-   `POST /expire`.
+   - `create_prorations` / `always_invoice` → `timing: immediate`,
+     `billing: prorated`, `compensation_method: prorated_credit`. Stripe credits
+     unused time; Frisbii's default `prorated_refund` refunds it to the payment
+     method instead, so set it explicitly.
+   - `none` → `timing: immediate`, `billing: none`, `compensation_method: none`
+     (switch now, no charge or credit for the current period). Use
+     `timing: renewal` only when the switch itself should wait.
+   - Frisbii change calls replace rather than merge (custom `amount`, contract
+     fields, pending changes); see `frisbii-subscriptions`.
+
+   Map `cancel_at_period_end: true` → `POST /cancel` (with plan notice periods,
+   the subscription runs, and is billed, for those extra periods); immediate
+   cancel → `POST /expire`.
 4. **Webhooks:** new endpoint with Frisbii signature verification
    (`frisbii-webhooks`). Event mapping: [references/event-mapping.md](references/event-mapping.md).
    Frisbii payloads contain references only; fetch the object.
 5. **Customer portal:** Stripe Billing Portal → **Frisbii Customer Portal**
    (plan feature) with SSO from your app: `POST
-   https://customer-portal-api.reepay.com/v1/session` `{ "email" }` → redirect
-   to `redirect_url`. Otherwise build actions on the API (subscription session
-   for payment-method changes, cancel, change plan).
+   https://customer-portal-api.frisbii.com/v1/session` `{ "email" }` → redirect
+   to `redirect_url` at once (the session lasts one hour; do not email the
+   link). Otherwise build actions on the API (subscription session for
+   payment-method changes, cancel, change plan).
 6. Remove Stripe-specific assumptions: `metadata` limits, `expand[]`, `cus_`
    prefixes in your DB, Stripe Tax.
 
@@ -89,8 +99,11 @@ Search the codebase for: `stripe`, `Stripe(`, `pk_live`, `sk_live`,
    plan, MRR, next billing date per customer.
 6. **Non-card methods:**
    - SEPA Direct Debit on Stripe: `POST /v1/payment_method/import_stripe_sepa`
-     with `stripe_customer_id`, `stripe_payment_method_id` and an active,
-     reusable `stripe_mandate_id`. The mandate continues; no customer action.
+     with `customer_handle` (or `customer`), `stripe_customer_id`,
+     `stripe_payment_method_id` and an active, reusable `stripe_mandate_id`. It
+     needs an active Stripe SEPA agreement on the Frisbii account: the mandate
+     stays in the merchant's Stripe account and debits keep running through
+     it, so keep that Stripe account. No customer action.
    - PayPal: `POST /v1/payment_method/import_paypal` (`token_type` `VAULT` or
      `BILLING_AGREEMENT`) when the agreement belongs to the merchant's own
      PayPal account; confirm with Frisbii.

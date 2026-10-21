@@ -28,15 +28,18 @@ All at `https://checkout-api.frisbii.com/v1/…`, authenticated with the private
 |---|---|---|
 | Take a payment | `POST /session/charge` | `order` (`handle`, `currency`, `customer` or `customer_handle`, `order_lines` or `amount`), `settle` |
 | Take a payment **and** save the method | same, `recurring: true` (or `recurring_optional: true` to let the customer choose) | saved method is returned/announced via webhook |
-| Pay an existing invoice | `POST /session/charge` with `invoice` | e.g. a failed subscription invoice |
+| Pay an existing invoice | `POST /session/charge` with `invoice` | Pays the invoice only; it does not change a subscription's payment method |
 | Only save a method | `POST /session/recurring` | `customer` or `create_customer` |
-| Subscription signup in one step | `POST /session/subscription` with `prepare_subscription` | creates the subscription when the customer completes checkout |
-| Add/change the method on an existing subscription | `POST /session/subscription` with `subscription` | |
+| Subscription signup in one step | `POST /session/subscription` with `prepare_subscription` | Creates a **pending** subscription when the session is created; it becomes active when the customer completes checkout. Creating a second session with the same subscription handle fails with a duplicate handle error |
+| Add/change the method on an existing subscription | `POST /session/subscription` with `subscription` | Also pays the subscription's outstanding invoice, so this is the session for a failed renewal |
 
 Useful options on all sessions: `payment_methods`, `locale` (`da_DK`, `en_GB`,
-`de_DE`, …), `ttl` (session expiry), `accept_url`, `cancel_url`, `phone`
-(prefills MobilePay/Vipps/Swish), `configuration` (admin-defined look),
-`card_on_file` (pay with a saved `ca_…`), `text_on_statement`.
+`de_DE`, …), `ttl` (session expiry, default three months), `accept_url`,
+`cancel_url`, `phone` (prefills MobilePay/Vipps/Swish), `configuration`
+(admin-defined look), `card_on_file` (pay with a saved card, `ca_…`),
+`show_terms`, and `session_data.alternative_return_url` for native apps.
+Charge sessions also take `text_on_statement`; other session types ignore it.
+End a session early with `DELETE /v1/session/{id}`.
 
 ### Charge session example
 
@@ -71,34 +74,47 @@ Response contains the session `id` (`cs_…`) and a hosted `url`.
 <script src="https://checkout.frisbii.com/checkout.js"></script>
 <div id="rp_container"></div>
 <script>
-  // choose one (charge/recurring sessions):
+  // Embedded or modal (charge/recurring sessions):
   const rp = new Reepay.EmbeddedCheckout(sessionId, { html_element: "rp_container" });
   // const rp = new Reepay.ModalCheckout(sessionId);   // overlay
-  // const rp = new Reepay.WindowCheckout(sessionId);  // full-page redirect
   // subscription sessions: Reepay.EmbeddedSubscription / Reepay.ModalSubscription
 
   rp.addEventHandler(Reepay.Event.Accept, (data) => {
     // UX only. Tell your server to confirm the payment server-side.
   });
   rp.addEventHandler(Reepay.Event.Error, (data) => { /* show retry */ });
+  rp.addEventHandler(Reepay.Event.Cancel, (data) => { /* customer cancelled */ });
   rp.addEventHandler(Reepay.Event.Close, () => { /* customer closed */ });
-  // Modal also fires Reepay.Event.Cancel
 </script>
 ```
 
+Window checkout has no events: `new Reepay.WindowCheckout(sessionId)` (or a
+redirect to the session `url`) navigates away at once, and the result comes
+back through `accept_url` / `cancel_url`. Do not call `addEventHandler` on it.
+
 The JS namespace is still `Reepay` after the rebrand. Options include
-`showReceipt: false`.
+`showReceipt: false` and, for Apple Pay in embedded/modal checkout, `domainName`
+(see "Apple Pay" in the docs: the domain must also be registered on the Apple
+Pay agreement in the Frisbii admin, with Apple's domain-verification file
+hosted on it). Even with events, set `accept_url` and `cancel_url`: on mobile,
+app-switch methods such as MobilePay return through them.
 
 **Give the embedded container a definite height.** The embedded checkout sizes its
 iframe at `height: 100%` of `html_element`. A container with only `min-height` (or no
 height) collapses the iframe to the browser default of 150px and hides the card form.
 Set e.g. `#rp_container { height: 780px; }` (the card form is about 700px tall).
 
-Subscription sessions can show a "subscription terms and conditions" checkbox (shown
-when the account has terms configured, or set with `show_terms`) and keep the button
-disabled until it is ticked. Expect it in test scripts; set `show_terms: false` only
-when your own signup already collects acceptance. Mobile apps: see "Checkout Native/Hybrid App
-Integration" in the docs.
+Checkout can show a "terms and conditions" checkbox and keep the button disabled
+until it is ticked. By default it is shown in subscription sessions for a
+subscription without a payment method, when the account or the checkout
+configuration has terms. `show_terms` overrides the default on any session type.
+Expect it in test scripts; set `show_terms: false` only when your own signup
+already collects acceptance.
+
+Mobile apps: follow "Checkout Native App Integration" in the docs (a WebView with
+the Native Bridge, and `session_data.alternative_return_url` set to the app's URL
+scheme) or "Checkout Hybrid App Integration". Do not send
+`alternative_return_url` as an empty string.
 
 | Mode | Use when |
 |---|---|
@@ -126,20 +142,35 @@ browser callback and the webhook will both arrive.
 | Capture an authorisation (ship) | `POST /v1/charge/{handle}/settle` (optionally partial `amount`) |
 | Release an authorisation | `POST /v1/charge/{handle}/cancel` |
 | Refund a settled charge | `POST /v1/refund` `{ "invoice": "{handle}", "amount": 5000 }` |
-| Charge a saved method (MIT) | `POST /v1/charge` `{ handle, key, amount, currency, customer_handle, source: "ca_…", settle }` |
+| Charge a saved method (MIT, customer not present) | `POST /v1/charge` `{ handle, key, amount, currency, customer_handle, source, settle }` with `source` = the saved method's id (`ca_…` card, `ar_…` Apple Pay, `gr_…` Google Pay, …) |
 
-Always send the idempotency `key` on `POST /v1/charge` and retry network
-errors / 5xx with the same `key` + `handle`.
+Charge and settle answer HTTP 200 also when the payment is declined: check
+`state` and `error_state` in the response. Always send the idempotency `key`
+on `POST /v1/charge` and retry network errors / 5xx with the same `key` +
+`handle`. A declined charge is replayed for the same `key`; to try again, keep
+the handle and send a new `key`.
+
+When the customer is present and pays with a saved card, use a charge session
+with `card_on_file` instead of `POST /v1/charge`: that payment is
+customer-initiated and needs SCA.
 
 ## Payment methods by market
 
 `payment_methods` takes IDs from "Checkout Payment Methods" in the docs. Omit
-it to show everything the account has configured. Recurring-capable methods
-(usable for subscriptions and saved-method charges):
+it to use the list of the session's `configuration`, or everything the account
+has configured. IDs that are misspelled or not enabled on the account are
+dropped silently (the session only fails, with error 601, when none are
+left), so check that the session shows what you expect. `mobilepay` and `vipps`
+are shown as `vipps_epayment` when the account has a Vipps MobilePay ePayments
+agreement.
+
+Recurring-capable methods (usable for subscriptions and saved-method charges):
 
 `card` (and specific schemes: `visa`, `mc`, `dankort`, `amex`, `maestro`, …),
 `applepay`, `googlepay`, `paypal`, `sepa`, `vipps_recurring`, `twint`,
 `klarna` (unified), `offline_bank_transfer`, `offline_cash`, `offline_other`.
+PayPal and Google Pay are recurring only when the account's agreement supports
+it.
 
 Single-payment only: `mobilepay` (MobilePay Online), `vipps`,
 `vipps_epayment`, `swish`, `viabill`, `anyday`, `ideal`, `bancontact`,
@@ -148,32 +179,42 @@ Single-payment only: `mobilepay` (MobilePay Online), `vipps`,
 
 | Market | Typical set |
 |---|---|
-| Denmark | `card` (incl. Dankort), `mobilepay` (one-off) / `vipps_recurring` (Vipps MobilePay recurring), `applepay`, `googlepay` |
-| Norway | `card`, `vipps` / `vipps_epayment`, `vipps_recurring` |
+| Denmark | `card` (incl. Dankort), `vipps_epayment` (Vipps MobilePay, one-off) / `vipps_recurring` (Vipps MobilePay recurring), `applepay`, `googlepay` |
+| Norway | `card`, `vipps_epayment`, `vipps_recurring` |
 | Sweden | `card`, `swish` (one-off), `klarna` |
-| Finland | `card`, `mobilepay`, `verkkopankki` |
+| Finland | `card`, `vipps_epayment`, `verkkopankki` |
 | Germany / Austria | `card`, `sepa`, `paypal`, `klarna`, `applepay`, `googlepay`, `eps` (AT) |
 | Netherlands / Belgium | `card`, `ideal` / `bancontact`, `sepa` |
 | Switzerland | `card`, `twint`, `postfinance` |
 | Poland | `card`, `blik_oc`, `p24` |
 
 Availability depends on the merchant's agreements. Check with the account's
-configuration rather than assuming every ID is enabled.
+configuration rather than assuming every ID is enabled. SEPA Direct Debit comes
+from several providers with different rules; see "SEPA Direct Debit" in the docs
+(for example, SEPA via Stripe works only in Window Checkout).
 
 ## SCA / 3-D Secure
 
-- Customer-initiated payments in Checkout get SCA automatically. Pass
-  `sca_data` (customer email, address, …) to reduce challenges.
-- Saved-method charges and subscription renewals are merchant-initiated; the
-  platform flags them. If an issuer still demands authentication
-  (`transaction_error` such as `sca_required`), bring the customer back
-  through Checkout (e.g. charge session with `invoice`) instead of retrying.
+- Customer-initiated payments in Checkout get SCA (3-D Secure) when the card is
+  enrolled; the admin can require it for all cards. Pass `sca_data` (customer
+  email, address, …) to reduce challenges.
+- Sessions that save a card for later merchant-initiated charges (recurring
+  sessions, and charge sessions with `recurring`) always present a challenge.
+- A customer who is present and pays with a saved card is customer-initiated
+  too: use `card_on_file` in a charge session.
+- Saved-method charges with the customer not present, and subscription
+  renewals, are merchant-initiated; the platform flags them. If an issuer still
+  demands authentication (`sca_required`), bring the customer back through
+  Checkout instead of retrying: a subscription session with `subscription` for a
+  subscription invoice (it also updates the payment method), or a charge session
+  with `invoice` otherwise.
 
 ## Testing
 
 Use the test account. Visa `4111 1111 1111 1111`, any future expiry. CVV `888`
-plus amounts trigger charge errors (`2001` insufficient funds, `3001` expired,
-`1337` SCA required), and CVV `001`–`006` make saving a card fail (see
+plus amounts in minor units trigger charge errors (`2001` insufficient funds,
+`3001` expired, `1337` SCA required, for payments without 3-D Secure), and CVV
+`001`–`006` make saving a card fail (see
 `frisbii-best-practices` references). Test at least: success, decline, 3DS,
 customer cancel, closing the tab after paying (webhook-only confirmation), and
 a duplicate click on "Pay".

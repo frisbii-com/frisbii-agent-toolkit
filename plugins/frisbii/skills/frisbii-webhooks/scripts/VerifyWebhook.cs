@@ -1,5 +1,8 @@
 // Verify a Frisbii (Reepay) webhook signature. .NET BCL only.
 // signature = hex(HMAC_SHA256(key = webhookSecret, message = timestamp + id))
+// Pass timestamp as the raw string. System.Text.Json's GetString() keeps it as is;
+// Newtonsoft JObject parses ISO dates by default and changes the text, so load it
+// with DateParseHandling.None.
 
 using System;
 using System.Security.Cryptography;

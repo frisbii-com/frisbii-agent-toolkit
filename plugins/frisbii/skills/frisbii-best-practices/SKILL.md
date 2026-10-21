@@ -53,10 +53,11 @@ private key is a server-side secret:
 
 **Test vs live.** Test mode is a separate **test account** with its own keys,
 webhook secret and catalogue. `GET /v1/account` returns `state`: `test`,
-`live` or `closed`. Create calls such as `POST /v1/subscription` accept a
+`live` or `closed`. `POST /v1/customer` and `POST /v1/subscription` accept a
 `test` flag that makes the API verify the account state matches what you
 intended. Use it to stop test code from ever writing to a live account. Test
-data older than three months is deleted automatically. "Going live" means
+customers created more than three months ago are deleted automatically,
+together with their subscriptions and invoices. "Going live" means
 swapping key, webhook secret and any handles to the live account; keep every
 environment-specific value in configuration, not code.
 
@@ -66,17 +67,23 @@ keep amounts as integers end to end. Currencies are ISO 4217 codes.
 
 **Handles are your IDs.** Customers, subscriptions, charges/invoices, plans,
 add-ons, discounts and coupons all take a `handle` you choose (max 255 chars,
-`[a-zA-Z0-9_.-@]`). Use them:
+128 for add-ons, `[a-zA-Z0-9_.-@]`). Use them:
 - Derive handles from your own primary keys (`cust-<your id>`, `order-<order id>`).
   Then you never need to store a Frisbii-generated ID, and you can always look an
   object up by your own key.
 - Handles are unique per account: retrying a create with the same handle cannot
-  create a second object. Never use random handles for orders/charges.
+  create a second object. Never use random handles for orders/charges. A charge
+  handle must not look like a subscription invoice handle (`inv-<number>` by
+  default).
 - For charges, also send the idempotency `key` parameter. With the same `key`
   and `handle`, a retried `POST /v1/charge` returns the original result instead
   of failing with "already authorized/settled". The docs specifically call this
-  out for instant-settle charges after a network error.
-- `generate_handle: true` exists. Use it only when you genuinely have no stable key.
+  out for instant-settle charges after a network error. The original result
+  includes a decline: to try a declined charge again, keep the `handle` and send
+  a new `key`.
+- `generate_handle: true` exists for customers and subscriptions. Use it only when
+  you genuinely have no stable key. A charge with an inline `customer` object but
+  no customer `handle` creates a new customer on every call, so always send one.
 
 **Webhooks are the source of truth for asynchronous state.** The redirect to
 `accept_url` is a UX signal, not a payment confirmation: users close tabs,
@@ -88,13 +95,24 @@ from a verified webhook or by fetching the object server-side. See
 (hosted window, modal or embedded). The integration stays out of PCI DSS scope
 beyond SAQ A. Do not build your own card form posting PANs to your server.
 
-**Errors.** Non-2xx responses return a JSON error object with `code`,
-`error`, optional `message`, `http_status`, `path`, `timestamp`, `request-id`
-(hyphenated) and, for payment failures, `transaction_error` (e.g.
-`insufficient_funds`, `credit_card_expired`). Log `request-id`: Frisbii support
-needs it. The Checkout API names the same field `request_id` (underscore); both APIs
-also send a `request-id` response header, so read the header when the body has neither. Branch on `http_status`, `code` and `transaction_error`, never on the
-message text. Error codes: <https://api.frisbii.com/v1/error_codes>.
+**A declined payment is not an HTTP error.** `POST /v1/charge` and
+`POST /v1/charge/{handle}/settle` answer **HTTP 200** when the request was
+processed, also when the payment failed. Read `state` (`authorized`, `settled`,
+`failed`, or `pending` for asynchronous methods) and, on failure, `error_state`
+(`soft_declined`, `hard_declined` or `processing_error`) and `error`. Code that
+only checks the HTTP status treats a declined charge as paid.
+
+**Errors.** Non-2xx responses return a JSON error object with `http_status`,
+`http_reason`, `error`, optional `message`, `code`, `path`, `timestamp`,
+`request_id` and, where a payment operation failed, `transaction_error` (e.g.
+`insufficient_funds`, `credit_card_expired`). Log `request_id`: Frisbii support
+needs it. The same value is sent as the `request-id` response header on both the
+Core and the Checkout API. Branch on `http_status`, `code` and `transaction_error`,
+never on the message text. Validation errors (422) carry a `message` but no
+`code`. Error codes: <https://api.frisbii.com/v1/error_codes>.
+- 400 with `code` 1 "Malformed authorization header" usually means `Bearer`
+  instead of Basic auth; 401 (`code` 6) an unknown key; 403 (`code` 7) no
+  credentials, or a key without permission for the operation.
 - 4xx: a bug or a business outcome. Do not retry blindly.
 - 429: rate limit (`code` 122) or concurrent-request limit (`code` 123). Back
   off and retry; reduce parallelism.

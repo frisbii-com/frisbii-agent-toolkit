@@ -40,9 +40,9 @@
 | `current_period_end` | `start_date` (at migration) | Aligns first Frisbii invoice with next Stripe renewal |
 | `trial_end` | trial / `start_date` | If in trial: `start_date` = trial end |
 | `discount.coupon` | `subscription_discounts` / `coupon_codes` | |
-| `cancel_at_period_end` | `/cancel` after create | Recreate the pending cancellation |
+| `cancel_at_period_end` | `/cancel` after create | Recreate the pending cancellation; plan notice periods add billed periods |
 | `billing_cycle_anchor` | plan `schedule_type` + `schedule_fixed_day` | |
-| `collection_method: send_invoice` | Offline payment method (`POST /v1/payment_method/offline`, e.g. `offline_bank_transfer`) as `source` | Requires an offline agreement on the account |
+| `collection_method: send_invoice` | Offline payment method as `source`: `POST /v1/payment_method/offline` with `offline_agreement_handle` and `customer_handle` | The type (bank transfer, cash, other) comes from the offline agreement, which must exist on the account |
 
 ## Coupon / promotion code
 
@@ -52,4 +52,5 @@
 | `duration: once / repeating / forever` | `fixed_count: 1` / `fixed_period` + `fixed_period_unit` / omit both |
 | Promotion code `code` | Coupon `code` → discount |
 | `max_redemptions`, `redeem_by` | Coupon redemption limits / validity (see Create coupon) |
-| `applies_to` | Discount `apply_to` (required: `all`, `plan`, `add_on`, …) |
+| `applies_to.products` | Coupon `eligible_plans` (or `all_plans: true`; the default is false) |
+| (no Stripe equivalent) | Discount `apply_to` (required): which order-line types it reduces (`all`, `plan`, `add_on`, `setup_fee`, …) |
