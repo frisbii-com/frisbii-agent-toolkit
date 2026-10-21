@@ -66,3 +66,7 @@ python3 tools/validate.py
 python3 -m unittest discover -s tests -v
 python3 tools/build_skills_index.py --out dist   # CI checks the bundle builds
 ```
+
+## License
+
+[MIT](LICENSE)
