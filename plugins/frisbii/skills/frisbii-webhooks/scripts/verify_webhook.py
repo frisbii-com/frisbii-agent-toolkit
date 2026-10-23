@@ -32,7 +32,8 @@ def verify_frisbii_webhook(payload: dict, secret: str) -> bool:
     if not (isinstance(timestamp, str) and isinstance(webhook_id, str) and isinstance(signature, str)):
         return False
     expected = compute_signature(secret, timestamp, webhook_id)
-    return hmac.compare_digest(expected, signature.lower())
+    # Compare bytes: compare_digest raises TypeError on non-ASCII str input.
+    return hmac.compare_digest(expected.encode("utf-8"), signature.lower().encode("utf-8"))
 
 
 if __name__ == "__main__":

@@ -17,9 +17,9 @@ objects. Fetch the object after verifying the signature.
 | `customer.subscription.created` | `subscription_created` | Not paid yet: wait for `invoice_settled` |
 | `customer.subscription.updated` | `subscription_changed`, `subscription_cancelled`, `subscription_uncancelled`, `subscription_on_hold`, `subscription_reactivated` | Frisbii splits Stripe's catch-all update |
 | `customer.subscription.deleted` | `subscription_expired` (+ `_dunning` variant) | |
-| `customer.subscription.trial_will_end` | none (`subscription_trial_end` fires at the end) | Use plan `trial_reminder_email_days` or your own scheduler |
+| `customer.subscription.trial_will_end` | `subscription_trial_end_reminder` | Sent when the plan sets `trial_reminder_email_days`; `subscription_trial_end` fires when the trial ends |
 | `invoice.created` | `invoice_created` | |
 | `invoice.paid` / `invoice.payment_succeeded` | `invoice_settled` | |
 | `invoice.payment_failed` | `invoice_failed`, `invoice_dunning` | |
-| `invoice.upcoming` | none (`subscription_renewal` fires at renewal) | Use plan `renewal_reminder_email_days` or your own scheduler |
+| `invoice.upcoming` | `subscription_renewal_reminder` | Sent when the plan sets `renewal_reminder_email_days`; `subscription_renewal` fires at renewal |
 | `payment_method.attached` / `.updated` / `.detached` | `customer_payment_method_added` / `_updated` / `_deleted` | |

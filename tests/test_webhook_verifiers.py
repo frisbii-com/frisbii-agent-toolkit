@@ -3,6 +3,7 @@
     python3 -m unittest discover -s tests
 """
 
+import datetime
 import hashlib
 import hmac
 import importlib.util
@@ -22,8 +23,8 @@ PAYLOAD["signature"] = hmac.new(SECRET.encode(), (PAYLOAD["timestamp"] + PAYLOAD
                                 hashlib.sha256).hexdigest()
 
 
-def load_py():
-    spec = importlib.util.spec_from_file_location("verify_webhook", os.path.join(SCRIPTS, "verify_webhook.py"))
+def load_script(name):
+    spec = importlib.util.spec_from_file_location(name, os.path.join(SCRIPTS, f"{name}.py"))
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)
     return mod
@@ -31,11 +32,20 @@ def load_py():
 
 class VerifierTest(unittest.TestCase):
     def test_python(self):
-        v = load_py()
+        v = load_script("verify_webhook")
         self.assertTrue(v.verify_frisbii_webhook(PAYLOAD, SECRET))
         self.assertFalse(v.verify_frisbii_webhook({**PAYLOAD, "id": "x"}, SECRET))
         self.assertFalse(v.verify_frisbii_webhook({**PAYLOAD, "signature": "0" * 64}, SECRET))
         self.assertFalse(v.verify_frisbii_webhook({"id": "x"}, SECRET))
+        # A forged non-ASCII signature must be rejected, not raise (which would answer 500).
+        self.assertFalse(v.verify_frisbii_webhook({**PAYLOAD, "signature": "ä" * 64}, SECRET))
+
+    def test_test_sender_timestamp_matches_platform_format(self):
+        fmt = load_script("send_test_webhook").format_timestamp
+        base = datetime.datetime(2015, 6, 25, 12, 10, 0, tzinfo=datetime.timezone.utc)
+        self.assertEqual(fmt(base.replace(microsecond=640000)), "2015-06-25T12:10:00.64Z")
+        self.assertEqual(fmt(base.replace(microsecond=123456)), "2015-06-25T12:10:00.123Z")
+        self.assertEqual(fmt(base), "2015-06-25T12:10:00Z")
 
     @unittest.skipUnless(shutil.which("node"), "node not installed")
     def test_node(self):

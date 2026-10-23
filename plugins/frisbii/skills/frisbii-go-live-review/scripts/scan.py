@@ -26,7 +26,7 @@ LINE_RULES = [
      re.compile(r"priv_[0-9a-f]{32}"), True),
     ("hardcoded-webhook-secret", "blocking",
      "Webhook secret assigned a literal; load from secret store instead",
-     re.compile(r"webhook_?secret\w*\W{0,4}[:=]\s*['\"][^'\"]{16,}['\"]", re.I), True),
+     re.compile(r"webhook_?secret\w*\W{0,4}[:=]\s*['\"][^'\"]{16,}['\"]|webhook_secret_[0-9a-f]{32}", re.I), True),
     ("test-card-number", "warning",
      "Test card number outside tests",
      re.compile(r"\b4111[ -]?1111[ -]?1111[ -]?1111\b"), False),
@@ -65,14 +65,22 @@ WEBHOOK_LINE_RULES = [
                 r"|extra\s*=\s*['\"]forbid|DisallowUnknownFields|MissingMemberHandling\.Error", re.I), False),
 ]
 
+# A line matching any of these is never printed, whichever rule flagged it.
+SECRET_MARKERS = [rx for _, _, _, rx, redact in LINE_RULES if redact]
+
 CHARGE_SESSION_MARKERS = re.compile(r"session/charge|ChargeSession|charge_session", re.I)
 SETTLE_MARKERS = re.compile(r"\bsettle\b", re.I)
 FRISBII_MARKERS = re.compile(r"api\.reepay\.com|checkout-api\.reepay\.com|checkout\.reepay\.com|frisbii", re.I)
-WEBHOOK_MARKERS = re.compile(r"event_type|invoice_settled|subscription_(created|expired|renewal)")
+# Frisbii event names mark a webhook handler on their own; a bare event_type only
+# counts in files that reference Frisbii (other providers use the same field name).
+FRISBII_EVENT_MARKERS = re.compile(r"invoice_(settled|authorized)|subscription_(created|expired|renewal)")
+EVENT_TYPE_MARKER = re.compile(r"event_type")
 SIGNATURE_MARKERS = re.compile(r"hmac|HmacSHA256|hash_hmac|createHmac|HMACSHA256|verify_frisbii_webhook|verifyFrisbiiWebhook", re.I)
 TIMEOUT_MARKERS = re.compile(r"timeout", re.I)
 # Hosts that take API calls. checkout.frisbii.com (the JS) and app.frisbii.com (admin) do not.
 API_HOSTS = re.compile(r"\b(api|checkout-api|customer-portal-api)\.(reepay|frisbii)\.com", re.I)
+# Configuration files name the host but make no HTTP calls, so the timeout check skips them.
+CONFIG_EXT = {".env", ".yml", ".yaml", ".json", ".properties", ".ini", ".toml"}
 
 SLASH_COMMENT_EXT = {".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx", ".php", ".java", ".kt", ".cs", ".go",
                      ".vue", ".svelte"}
@@ -96,8 +104,13 @@ def strip_comments(text: str, name: str) -> str:
 
 
 def is_test_path(path: str) -> bool:
-    p = path.lower()
+    # Leading slash so a top-level tests/ or spec/ directory matches too.
+    p = "/" + path.lower().replace(os.sep, "/")
     return any(t in p for t in ("/test", "/tests", "/spec", "__tests__", "_test.", ".test.", ".spec."))
+
+
+def is_config_file(name: str) -> bool:
+    return os.path.splitext(name)[1].lower() in CONFIG_EXT or name.startswith(".env")
 
 
 def iter_files(root: str):
@@ -128,10 +141,13 @@ def scan(root: str) -> dict:
         uses_frisbii = bool(FRISBII_MARKERS.search(text))
         if uses_frisbii:
             frisbii_files.append(rel)
-        code = strip_comments(text, os.path.basename(path))
-        handles_webhooks = bool(WEBHOOK_MARKERS.search(code)) and not is_test_path(rel)
+        name = os.path.basename(path)
+        code = strip_comments(text, name)
+        handles_webhooks = (bool(FRISBII_EVENT_MARKERS.search(code))
+                            or (uses_frisbii and bool(EVENT_TYPE_MARKER.search(code)))) and not is_test_path(rel)
         rules = LINE_RULES + (WEBHOOK_LINE_RULES if handles_webhooks else [])
         for lineno, line in enumerate(text.splitlines(), 1):
+            has_secret = any(rx.search(line) for rx in SECRET_MARKERS)
             for rule_id, severity, desc, rx, redact in rules:
                 if rule_id == "test-card-number" and is_test_path(rel):
                     continue
@@ -139,11 +155,11 @@ def scan(root: str) -> dict:
                     findings.append({
                         "rule": rule_id, "severity": severity, "file": rel, "line": lineno,
                         "description": desc,
-                        "snippet": None if redact else line.strip()[:160],
+                        "snippet": None if redact or has_secret else line.strip()[:160],
                     })
         if handles_webhooks and not SIGNATURE_MARKERS.search(code):
             webhook_files_without_sig.append(rel)
-        if API_HOSTS.search(code) and not TIMEOUT_MARKERS.search(code):
+        if API_HOSTS.search(code) and not TIMEOUT_MARKERS.search(code) and not is_config_file(name):
             findings.append({
                 "rule": "no-timeout", "severity": "warning", "file": rel, "line": None,
                 "description": "File calls Frisbii API but no timeout is visible; set explicit HTTP timeouts",

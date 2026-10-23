@@ -102,6 +102,31 @@ class ScanTest(unittest.TestCase):
         self.assertTrue(findings)
         self.assertTrue(all(x["snippet"] is None for x in findings if x["rule"] in ("bearer-auth", "hardcoded-private-key")))
 
+    def test_secret_never_printed_by_another_rule(self):
+        scan = load_scan()
+        with tempfile.TemporaryDirectory() as root:
+            with open(os.path.join(root, "config.json"), "w") as f:
+                f.write('{"key":"priv_0123456789abcdef0123456789abcdef","host":"https://card.reepay.com"}\n')
+            findings = scan.scan(root)["findings"]
+        self.assertIn("internal-card-endpoint", {x["rule"] for x in findings})
+        self.assertTrue(all(x["snippet"] is None for x in findings))
+
+    def test_bare_webhook_secret_is_flagged(self):
+        found = rules_for({".env": "FRISBII_WEBHOOK_SECRET=webhook_secret_0123456789abcdef0123456789abcdef\n"})
+        self.assertIn("hardcoded-webhook-secret", found)
+
+    def test_top_level_tests_directory_is_a_test_path(self):
+        found = rules_for({"tests/test_checkout.py": "CARD = '4111 1111 1111 1111'\n"})
+        self.assertNotIn("test-card-number", found)
+
+    def test_other_providers_event_type_is_not_a_frisbii_webhook(self):
+        found = rules_for({"app/paypal.js": "if (body.event_type === 'PAYMENT.CAPTURE.COMPLETED') ship();\n"})
+        self.assertNotIn("webhook-without-signature-check", found)
+
+    def test_config_file_naming_the_api_host_needs_no_timeout(self):
+        found = rules_for({"config/app.yml": "frisbii_api: https://api.frisbii.com/v1\n"})
+        self.assertNotIn("no-timeout", found)
+
 
 if __name__ == "__main__":
     unittest.main()

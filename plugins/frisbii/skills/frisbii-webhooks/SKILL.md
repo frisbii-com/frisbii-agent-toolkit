@@ -26,10 +26,12 @@ settled, a renewal failed, or a subscription expired.
 }
 ```
 
-`id`, `event_id`, `event_type`, `timestamp`, `signature` and `customer` are in
-every webhook; `invoice`, `subscription`, `transaction`, `payment_method`,
-`credit_note`, `dispute`, … only when relevant. New fields get added over time,
-so ignore unknown ones. The payload carries **references, not state**: fetch the
+`id`, `event_id`, `event_type`, `timestamp` and `signature` are in every
+webhook. `customer` is in every customer, invoice and subscription event, but not
+in account-level events such as `settlement_data_updated`, so do not require it.
+`invoice`, `subscription`, `transaction`, `payment_method`, `credit_note`,
+`dispute`, … appear only when relevant. New fields get added over time, so
+ignore unknown ones. The payload carries **references, not state**: fetch the
 object (`GET /v1/invoice/{invoice}`, `GET /v1/subscription/{subscription}`).
 
 ## Verify every request
@@ -39,13 +41,21 @@ signature = hex( HMAC_SHA256( key = webhook_secret, message = timestamp + id ) )
 ```
 
 - `timestamp` and `id` are the exact strings from the payload, concatenated with
-  no separator.
+  no separator. The timestamp is ISO 8601 in UTC with zero to three fraction
+  digits (`2015-06-25T12:10:00.64Z`, `…:00Z`). Read it as a string: a JSON
+  library that turns it into a date and back (Newtonsoft `JObject` does by
+  default, a Jackson mapping to `OffsetDateTime` does) changes the text and
+  breaks the check.
 - The webhook secret is per account (test and live differ). Find it in the
   admin webhook settings or `GET /v1/account/webhook_settings`. Store it as a
   secret, never in code.
 - The signature covers only `id` + `timestamp` (deliberately, so new fields can
   be added). It proves the webhook came from Frisbii; replay protection comes
-  from storing processed ids (below), and state always comes from the API.
+  from storing processed `id`s (below), and state always comes from the API.
+- The signature is computed once, when the webhook is created, and retries and
+  manual resends send it unchanged. After rotating the secret, accept the old
+  and the new secret until older webhooks have finished retrying (up to three
+  days). For the same reason, do not reject webhooks for an old `timestamp`.
 - Compare with a **constant-time** comparison.
 - Reject (HTTP 401) on mismatch and log it.
 
@@ -72,13 +82,17 @@ python3 scripts/send_test_webhook.py --url http://localhost:3000/webhooks/frisbi
 ```text
 POST /webhooks/frisbii
   1. parse JSON; verify signature        → 401 if invalid
-  2. dedupe on payload.event_id          → 200 if already processed
+  2. seen payload.id or payload.event_id → 200 (retry or duplicate)
   3. enqueue {id, event_type, refs}      → 200 immediately
 worker:
   4. fetch current object state from the API
   5. apply business change idempotently (keyed on your own handles)
-  6. mark payload.event_id processed
+  6. mark payload.id and payload.event_id processed
 ```
+
+Storing `id` as well as `event_id` matters: `event_id` is not covered by the
+signature, so a captured webhook replayed with a changed `event_id` would
+otherwise pass both the signature check and the dedupe.
 
 Rules (from the platform's delivery guarantees):
 - **Respond 2xx within 10 seconds.** Connection and response timeouts are 10 s;
@@ -92,11 +106,15 @@ Rules (from the platform's delivery guarantees):
 - **Ordering** is FIFO per customer and URL, but only while deliveries succeed.
   A failed webhook is retried without blocking later ones. Always act on fetched
   state, never on the sequence.
-- **Concurrency:** at most five webhook requests in parallel per account.
+- **Concurrency:** expect several webhook requests in parallel, also for the same
+  customer while earlier deliveries are being retried. Make processing safe under
+  concurrency rather than relying on a fixed limit.
 - **Return non-2xx only when you want a retry.** Invalid signature → 401;
   irrelevant event → 200.
 - **Reconcile.** Periodically compare with the API (e.g. `GET /v1/event` or list
   invoices by state) so a missed webhook cannot leave an order unpaid forever.
+  `GET /v1/list/webhook` (filter on `state`) shows deliveries that failed, and
+  `POST /v1/webhook/resend` sends them again once your endpoint is fixed.
 - **Firewalls:** webhooks come from `52.18.114.235` or `34.247.100.100`, to
   ports 80/443 only.
 
@@ -106,15 +124,26 @@ See [references/events.md](references/events.md) for the catalogue. Minimum sets
 
 | Integration | Events |
 |---|---|
-| One-off payments | `invoice_authorized`, `invoice_settled`, `invoice_failed`, `invoice_cancelled`, `invoice_refund`, `invoice_refund_failed`, `invoice_dispute_*` |
-| Subscriptions | the above plus `subscription_created`, `subscription_renewal`, `subscription_changed`, `subscription_cancelled`, `subscription_uncancelled`, `subscription_on_hold`, `subscription_on_hold_dunning`, `subscription_reactivated`, `subscription_expired`, `subscription_expired_dunning`, `invoice_dunning`, `invoice_dunning_notification`, `subscription_payment_method_changed` |
-| Customer sync | `customer_created`, `customer_changed`, `customer_deleted`, `customer_payment_method_added/updated/deleted/failed` |
+| One-off payments | `invoice_authorized`, `invoice_settled`, `invoice_failed`, `invoice_cancelled`, `invoice_refund`, `invoice_refund_failed`, `invoice_dispute_opened`, `invoice_dispute_waiting_for_response`, `invoice_dispute_under_review`, `invoice_dispute_resolved` |
+| Subscriptions | the above plus `subscription_created`, `subscription_payment_method_added`, `subscription_payment_method_changed`, `subscription_renewal`, `subscription_changed`, `subscription_cancelled`, `subscription_uncancelled`, `subscription_on_hold`, `subscription_on_hold_dunning`, `subscription_reactivated`, `subscription_expired`, `subscription_expired_dunning`, `invoice_dunning`, `invoice_dunning_notification`, `invoice_dunning_cancelled`, `customer_payment_method_failed` |
+| Customer sync | `customer_created`, `customer_changed`, `customer_deleted`, `customer_payment_method_added`, `customer_payment_method_updated`, `customer_payment_method_deleted`, `customer_payment_method_failed` |
+
+Spell event names out in full when you configure them; the settings API does
+not accept wildcards.
 
 ## Configuration
 
 - Configure URLs (several allowed, for redundancy), the events that should
-  produce webhooks (not every event does by default), optional HTTP Basic auth
-  and alert emails in the admin, or via `GET/PUT /v1/account/webhook_settings`.
-  A new secret can be generated via the API. Rotate it on suspicion of leakage.
+  produce webhooks, optional HTTP Basic auth and alert emails in the admin, or
+  via `GET/PUT /v1/account/webhook_settings`.
+- On a new account webhooks are **disabled**, and only `invoice_authorized` and
+  `customer_payment_method_added` are selected. Enable them and select every
+  event your flow needs.
+- `PUT /v1/account/webhook_settings` replaces the URLs, Basic auth credentials
+  and alert settings with what you send: `GET` first and send everything back.
+  Leaving out `username`/`password` removes Basic auth. `event_types` is kept
+  when you leave it out.
+- `POST /v1/account/webhook_settings/secret` generates a new secret. Rotate it on
+  suspicion of leakage, and accept both secrets during the switch (see above).
 - Basic auth is an additional layer, not a replacement for signature checks.
 - Separate endpoints (and secrets) for test and live accounts.

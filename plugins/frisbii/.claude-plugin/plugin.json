@@ -1,6 +1,6 @@
 {
   "name": "frisbii",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Skills that help coding agents build correct integrations with Frisbii Billing and Frisbii Pay: product routing, checkout, subscriptions, webhooks, migration from Stripe and a go-live review.",
   "author": {
     "name": "Frisbii"

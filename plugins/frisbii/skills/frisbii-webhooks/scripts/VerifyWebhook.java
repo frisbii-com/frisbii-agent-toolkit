@@ -1,6 +1,8 @@
 // Verify a Frisbii (Reepay) webhook signature. JDK only.
 // signature = hex(HMAC_SHA256(key = webhookSecret, message = timestamp + id))
 // Parse the JSON body with your usual library and pass the three string fields.
+// Pass timestamp as the raw string: mapping it to OffsetDateTime/Instant and back
+// changes the text and the signature no longer matches.
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
